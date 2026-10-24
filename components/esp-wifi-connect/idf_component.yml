@@ -1,0 +1,7 @@
+# Vendored from 78/esp-wifi-connect v3.2.2 (commit c24b97c1).
+# 依赖清空：IDF 6.2 没有内置 cJSON，由 components/cjson 本地组件提供；
+# 其余（esp_timer/esp_http_server/esp_wifi/nvs_flash）都是 IDF 内置。
+# CMakeLists 的 v6 分支已补上 cjson REQUIRES（原 v6 分支漏写，见本目录 README 记录）。
+description: ESP32 WiFi Configuration (vendored)
+license: MIT
+version: 3.2.2

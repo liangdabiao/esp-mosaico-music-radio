@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.22)
+set(MOSAICO_UTILS_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../submodule/esp-mosaico-utils")
+set(MOSAICO_BSP_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../submodule/esp-mosaico-bsp")
+if(NOT SDKCONFIG)
+    set(SDKCONFIG "${CMAKE_BINARY_DIR}/sdkconfig")
+endif()
+if(NOT SDKCONFIG_DEFAULTS)
+    set(SDKCONFIG_DEFAULTS "sdkconfig.defaults;sdkconfig.application.defaults")
+endif()
+# Retained Recovery 契约：把 Recovery 侧的 esp_mosaico_app_recovery 组件接入构建，
+# 应用侧通过 iris_ota_support_start() 上报健康；OTA 写入器保留在 Recovery。
+set(MOSAICO_RECOVERY_COMPONENT_DIR "${MOSAICO_UTILS_ROOT}/esp-mosaico-recovery/components/esp_mosaico_app_recovery")
+list(APPEND EXTRA_COMPONENT_DIRS "${MOSAICO_RECOVERY_COMPONENT_DIR}")
+include("${MOSAICO_UTILS_ROOT}/esp-mosaico-recovery/cmake/mosaico_idf_project.cmake")
+project(music_radio VERSION 0.1.0)
+include("${MOSAICO_UTILS_ROOT}/mosaico-tools/cmake/system_update.cmake")

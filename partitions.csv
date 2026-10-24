@@ -1,0 +1,16 @@
+# Name,    Type, SubType, Offset,   Size,     Flags
+# ESP-Mosaico 16MB。音频已全部移出 Flash 放到外部 SPI NAND（/nand/audio/，
+# 108 课约 543MB），固件只剩播放器/UI/目录/段索引 —— 约 1.39MB。
+#
+# 布局必须匹配产品契约 immutable_layout（known-issues #34）：
+# factory 恒为 0x20000/0x1c0000（里面保留的是 Recovery，不是应用），
+# 应用装 ota_0（0x210000/0xdf0000 ≈ 14.3MB，装 1.39MB 绰绰有余）。
+# 不要为了「容纳首装镜像」去放大 factory —— prepare_system_update.py 会
+# 以 unexpected factory layout 拒绝打包（little-prince 踩过同一条）。
+otadata,   data, ota,     0x9000,   0x2000,
+phy_init,  data, phy,     0xb000,   0x1000,
+sysmeta,   data, nvs,     0xc000,   0x14000,
+factory,   app,  factory, 0x20000,  0x1c0000,
+coredump,  data, coredump,0x1e0000, 0x20000,
+nvs,       data, nvs,     0x200000, 0x10000,
+ota_0,     app,  ota_0,   0x210000, 0xdf0000,

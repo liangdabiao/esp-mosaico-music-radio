@@ -1,0 +1,12 @@
+# Build output / logs
+build/
+*.log
+.codex-runs/
+
+# Host test binaries
+tests/*.exe
+
+# Python
+__pycache__/
+# ESP-IDF component manager downloads (restored from dependencies.lock)
+managed_components/

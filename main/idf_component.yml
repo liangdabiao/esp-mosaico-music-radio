@@ -1,0 +1,14 @@
+dependencies:
+  idf: ">=6.2"
+  esp-mosaico-bsp:
+    version: "*"
+    override_path: "../../../submodule/esp-mosaico-bsp/components/esp-mosaico-bsp"
+  esp_iris:
+    version: "*"
+    override_path: "../../../submodule/esp-mosaico-utils/ESP-Iris/components/esp_iris"
+  # BSP 显示适配器（esp_lvgl_adapter 0.6.2）匹配的 LVGL 版本。
+  lvgl/lvgl: "==9.5.0"
+  # 显式声明同版本，保证组件管理器一定下载（rules 在早期解析阶段偶发不生效）。
+  espressif/esp_lvgl_adapter: "0.6.2"
+  # esp_audio_codec / esp-wifi-connect / cjson 用 components/ 里的本地副本
+  # （CDN 403 前科见 AGENTS.md），不在此声明。
