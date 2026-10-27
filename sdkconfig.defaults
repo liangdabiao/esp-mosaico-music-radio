@@ -1,13 +1,13 @@
 CONFIG_IDF_TARGET="esp32s31"
 CONFIG_IDF_EXPERIMENTAL_FEATURES=y
-CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # 关闭 ccache（防 cc1 OOM）。显式 n 项：reconfigure 重建 CMakeCache 时防复活。
 CONFIG_CCACHE_ENABLE=n
 
 # app_main 这条路径是 C++（LVGL UI + 播放器 + Iris/Recovery 启动），默认 3584 的
 # main 任务栈没有余量；栈溢出在本机上正好表现为「无 coredump 的僵死」——与上机
 # 现场一致（控制台是 UART、CONFIG_ESP_SYSTEM_NO_BACKTRACE=y，主机侧看不到任何输出）。
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 
 # PSRAM（板载 Oct 250MHz）：BSP 显示的全屏双缓冲依赖它，关掉会让 esp_lvgl_adapter 的
 # esp_cache_get_alignment(MALLOC_CAP_SPIRAM) 直接 abort，应用崩在 Iris 启动之前 ——
@@ -34,6 +34,8 @@ CONFIG_HTTPD_MAX_URI_LEN=256
 CONFIG_LWIP_SNTP_MAX_SERVERS=3
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=12
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+# Больше TCP-окно: стрим 64kbps не должен упираться в мелкое окно
+CONFIG_LWIP_TCP_RCV_WND=11680
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
 CONFIG_ESP_WIFI_RX_BA_WIN=6
 CONFIG_ESP_WIFI_MGMT_SBUF_NUM=8

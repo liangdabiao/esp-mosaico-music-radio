@@ -17,8 +17,8 @@
 #include "bsp/audio.h"
 #include "decoder/esp_audio_dec_default.h"
 #include "esp_audio_simple_dec.h"
-#include "simple_dec/esp_audio_simple_dec_default.h"
 #include "esp_attr.h"
+#include "simple_dec/esp_audio_simple_dec_default.h"
 #include "esp_codec_dev.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
@@ -47,35 +47,43 @@ constexpr std::size_t kInputSize = 1024;
 constexpr std::size_t kOutputSize = 8192;
 
 // ---- 预取环（PSRAM）----
-// 64 kbps ≈ 8 KB/s：48 KB ≈ 6 秒。直播不断流，但 Wi-Fi 侧偶发 100-500 ms
-// 停顿；6 秒余量配合 2.5 秒重连预算，听感上「不断」。
-constexpr std::size_t kRingBytes = 48 * 1024;
-constexpr std::size_t kPrebufferBytes = 16384;   // ≈ 2 秒再开播
-constexpr uint32_t kPrebufferWaitMs = 4000;
+// 64 kbps ≈ 8 KB/s。真机实测（2026-10-27）：蜻蜓服务器 отдаёт поток рывками
+// с паузами по несколько секунд — 48 KB 环 постоянно пустел（卡顿根因）。
+// 96 KB ≈ 12 秒余量 + предбуфер 32 KB ≈ 4 秒 перед стартом.
+constexpr std::size_t kRingBytes = 192 * 1024;
+constexpr std::size_t kPrebufferBytes = 65536;   // ≈ 8 秒再开播
+constexpr uint32_t kPrebufferWaitMs = 6000;
 
 constexpr TickType_t kRingRecvTimeout = pdMS_TO_TICKS(100);
 // 必须带超时：缓冲满时死等会让 net_task 在换台后永远卡在写入上。
 constexpr TickType_t kRingSendTimeout = pdMS_TO_TICKS(200);
 
-constexpr uint32_t kHttpTimeoutMs = 5000;
+constexpr uint32_t kHttpTimeoutMs = 10000;
 constexpr int kStreamRetries = 5;                 // net_task 内部重试轮数
 constexpr uint32_t kRetryStepMs = 600;
 // 缓冲空了多久放弃本会话（net_task 还活着时不轻易放弃）。
-constexpr uint32_t kStarveGiveUpMs = 12000;
+constexpr uint32_t kStarveGiveUpMs = 30000;
 constexpr uint32_t kStarveLogEveryMs = 3000;
+
+// 预取环本体放 PSRAM 静态区（.ext_ram.bss）：LVGL 双缓冲把堆的最大连续块
+// 压到 <192 KB，堆分配的 192 KB 环会静默降级成 48 KB（真机 2026-10-27 实测）。
+// 静态段不受堆碎片影响；早期那次「启动即崩」的真正根因是 main 任务栈溢出
+// （16 KB 栈修复后堆环版也健康运行 20+ 分钟），与此无关。
+static EXT_RAM_BSS_ATTR uint8_t s_ring_storage[kRingBytes];
+static StaticStreamBuffer_t s_ring_struct;
 
 // 音频产出看门狗（同 english-podcast）：有数据喂但喇叭 N 秒无声 → 重建通路。
 constexpr uint32_t kSilenceRestartMs = 5000;
 constexpr uint8_t kMaxAudioRestarts = 2;
 constexpr uint32_t kHealthLogEveryMs = 10000;
-constexpr uint32_t kNetTaskStack = 8192;
+constexpr uint32_t kNetTaskStack = 10240;
 
 // 播放任务对同一台的连续失败容忍；超过就换下一台（死台自救）。
 constexpr uint8_t kMaxFailedAttempts = 4;
 
-// 预取环本体放 PSRAM（CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y）。
-static EXT_RAM_BSS_ATTR uint8_t s_ring_storage[kRingBytes];
-static StaticStreamBuffer_t s_ring_struct;
+// 预取环用堆分配（>4KB 落 PSRAM，同 english-podcast）。不放 .ext_ram.bss：
+// 静态 PSRAM 段是启动期即要寻址的区域，真机首装出现过 main 任务启动即跳
+// 野地址的崩溃，堆分配消除这个变量。主档 48 KB 见上方预取环说明。
 
 std::atomic<bool> s_network_connected{false};
 std::atomic<bool> s_wanted_playing{false};
@@ -312,7 +320,7 @@ std::size_t downmix_to_mono(uint8_t *pcm, std::size_t bytes, uint8_t channels) {
 
 bool push_body_into_ring(esp_http_client_handle_t client, std::size_t station,
                          uint32_t generation) {
-    uint8_t chunk[2048];
+    uint8_t chunk[2048];   // 任务栈上分配；8192 会撑爆 8KB 的 net_task 栈（真机 2026-10-27 crash×3 根因）
     while (true) {
         if (!request_still_current(generation, station)) return false;
         const int received =
@@ -372,7 +380,7 @@ void net_task(void *) {
         esp_http_client_config_t config = {};
         config.url = snap.url;
         config.timeout_ms = kHttpTimeoutMs;
-        config.buffer_size = 2048;
+        config.buffer_size = 8192;
         config.buffer_size_tx = 512;
         config.user_agent = "MosaicoMusicRadio/1.0";
         config.keep_alive_enable = true;
@@ -492,12 +500,18 @@ enum class StreamOutcome { Failed, Dropped, NetLost };
 
 // 一次会话：起 net_task → 预取 → 解码循环。直播没有「完成」：
 // 环空且网络侧失败 = NetLost（播放任务重连），会话被换 = Dropped。
+bool ensure_ring();   // 定义在文件下方；play_stream 比它先用到。
+
 StreamOutcome play_stream(std::size_t station, uint32_t generation) {
     const mr_station_snapshot_t snap = station_snapshot(station);
     if (!snap.url[0]) return StreamOutcome::Failed;
 
     StreamState state;
     if (!open_pipeline(&state)) return StreamOutcome::Failed;
+    if (!ensure_ring()) {
+        close_pipeline(&state);
+        return StreamOutcome::Failed;
+    }
 
     clear_levels();
     s_listen_samples.store(0, std::memory_order_release);
@@ -749,7 +763,8 @@ bool ensure_ring() {
     if (s_ring) return true;
     s_ring = xStreamBufferCreateStatic(kRingBytes, 1, s_ring_storage, &s_ring_struct);
     if (s_ring) {
-        ESP_LOGI(kTag, "ring buffer: %u B (PSRAM)", static_cast<unsigned>(kRingBytes));
+        ESP_LOGI(kTag, "ring buffer: %u B (static PSRAM)",
+                 static_cast<unsigned>(kRingBytes));
         return true;
     }
     ESP_LOGE(kTag, "cannot create ring buffer");
@@ -761,7 +776,8 @@ bool ensure_ring() {
 bool radio_player_init() {
     s_station_mutex = xSemaphoreCreateMutex();
     if (!s_station_mutex) return false;
-    if (!ensure_ring()) return false;
+    // 预取环不在启动时建：配网门户要吃内存（english-podcast 同策略），
+    // 第一次播放时 ensure_ring() 惰性分配。
 
     const uint8_t saved_station = restore_station_index();
     const uint8_t saved_volume = load_u8("volume", 80);
@@ -798,7 +814,7 @@ void radio_player_release_ring() {
     while (s_net_active.load(std::memory_order_acquire) && now_ms() < deadline) {
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-    // 静态环不能删，只能清空：配网结束后的第一次播放直接复用。
+    // 配网门户要吃网络缓冲：清空静态环（不能删），之后的播放直接复用。
     xStreamBufferReset(s_ring);
 }
 

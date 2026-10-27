@@ -101,11 +101,15 @@ python mosaico.py iris system-update --project projects/music-radio
 ## 已知边界
 
 - 台源与流归蜻蜓 FM，仅供个人学习。
+- **蜻蜓对长连接按接近实时码率限速**（实测 PC 持续拉流 ≈8.9 KB/s vs 消费 8.0 KB/s，
+  余量仅 11%）。固件用 192 KB 静态 PSRAM 环（约 24 秒余量）+ 64 KB 预缓冲 +
+  10 秒读超时把它压稳；真机连续播放零 starve（2026-10-27）。网络极差时仍可能
+  短暂缓冲，属于源头上限。
 - ES8311 为单声道 DAC，输出为等权立体声 downmix（不做假立体声）。
 - 蜻蜓无 128 kbps 变体（实测 404），64 kbps 是该平台音乐台的上限。
 - 冷门 SSID 汉字可能显示为空框（字库只烘高频表，english-podcast 同策略）。
-- 构建尾部会报一条 `factory too small (overflow 0x533a0)` 警告：固件 2.08 MB
+- 构建尾部会报一条 `factory too small (overflow ...)` 警告：固件 2.4 MB
   超过 factory 槽（1.75 MB，按 immutable_layout 契约固定留给 Recovery）。
-  应用经 `iris system-update` 装进 ota_0（14.6 MB），该警告符合预期，
-  **不要**为此放大 factory（known-issues #34）。
+  应用经 `iris system-update` / `app-update` 装进 ota_0（14.6 MB），该警告符合
+  预期，**不要**为此放大 factory（known-issues #34）。
 

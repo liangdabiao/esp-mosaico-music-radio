@@ -160,6 +160,10 @@ void wifi_event(WifiEvent event, const std::string &data) {
             s_connected.store(true);
             s_config_mode.store(false);
             s_last_ssid = data;
+            // 播放器的网络闸门：english-podcast 里由目录装载任务在装完后
+            // 回调 set_network(true)，本应用没有目录任务，必须在这里放行，
+            // 否则播放任务永远停在「等待网络」（真机 2026-10-27 实测）。
+            radio_player_set_network(true);
             radio_ui_set_network(true, data.c_str());
             if (on_wifi_page()) radio_ui_show_tuner();
             manager.SetPowerSaveLevel(WifiPowerSaveLevel::PERFORMANCE);
